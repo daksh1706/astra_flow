@@ -440,6 +440,17 @@ def trigger_retrain(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_retrain_background)
     return {"status": "success", "message": "Retraining task scheduled."}
 
+@app.get("/api/feedback")
+def get_feedback():
+    """Returns the complete list of logged feedback entries"""
+    if not os.path.exists(FEEDBACK_FILE):
+        return []
+    try:
+        with open(FEEDBACK_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Could not read feedback logs")
+
 @app.post("/api/feedback")
 def submit_feedback(req: FeedbackRequest, background_tasks: BackgroundTasks):
     """Appends post-event feedback to database to update learning loop"""

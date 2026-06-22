@@ -654,10 +654,9 @@ async function loadLearningTab() {
 
 async function renderFeedbackLogTable() {
     try {
-        const response = await fetch(`${API_BASE}/api/feedback/stats`);
-        const stats = await fetch(`${API_BASE}/feedback.json`); // load full list of entries
-        if (!stats.ok) return;
-        const list = await stats.json();
+        const response = await fetch(`${API_BASE}/api/feedback`);
+        if (!response.ok) return;
+        const list = await response.json();
         
         const tbody = document.querySelector("#feedback-log-table tbody");
         tbody.innerHTML = "";
