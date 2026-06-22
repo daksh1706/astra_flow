@@ -105,7 +105,8 @@ function showToast(message, type = "success") {
 }
 
 // 2. Fetch dropdown choices from API
-async function loadMetaDropdowns() {
+// 2. Fetch dropdown choices from API with retry protection for Render cold starts
+async function loadMetaDropdowns(retryCount = 0) {
     try {
         const response = await fetch(`${API_BASE}/api/meta`);
         if (!response.ok) throw new Error("Could not fetch metadata");
@@ -158,12 +159,18 @@ async function loadMetaDropdowns() {
         
     } catch (error) {
         console.error("Error loading metadata dropdowns:", error);
-        showToast("Error loading incident configuration parameters", "error");
+        if (retryCount < 10) {
+            console.log(`Retrying metadata fetch in 4s... (Attempt ${retryCount + 1}/10)`);
+            showToast("Server is starting up. Retrying connection...", "info");
+            setTimeout(() => loadMetaDropdowns(retryCount + 1), 4000);
+        } else {
+            showToast("Error loading incident configuration parameters from server", "error");
+        }
     }
 }
 
-// 3. Tab 1: Historical Analytics initialization
-async function initAnalyticsTab() {
+// 3. Tab 1: Historical Analytics initialization with retry protection for Render cold starts
+async function initAnalyticsTab(retryCount = 0) {
     try {
         const response = await fetch(`${API_BASE}/api/analytics`);
         if (!response.ok) throw new Error("Could not fetch analytics data");
@@ -216,7 +223,12 @@ async function initAnalyticsTab() {
         
     } catch (error) {
         console.error("Error loading analytics tab:", error);
-        showToast("Error retrieving historical analytics records", "error");
+        if (retryCount < 10) {
+            // Keep retrying in silence to avoid double toasts, as loadMetaDropdowns handles visual feedback
+            setTimeout(() => initAnalyticsTab(retryCount + 1), 4000);
+        } else {
+            showToast("Error retrieving historical analytics records from server", "error");
+        }
     }
 }
 
