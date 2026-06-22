@@ -6,6 +6,9 @@ let plannerMap = null;
 let simulatorMarker = null;
 let diversionMarkers = [];
 let diversionLines = [];
+let jurisdictionLayer = null;
+let stationMarker = null;
+let barricadeMarker = null;
 
 let chartCauses = null;
 let chartHours = null;
@@ -501,8 +504,49 @@ async function handleSimulatorSubmit(e) {
         // Update Simulator Map with Diversion Points
         clearDiversions();
         
+        // Draw Police Station Jurisdiction in background
+        const selectedStation = police_station;
+        if (meta && meta.station_coords && meta.station_coords[selectedStation]) {
+            const sCoords = meta.station_coords[selectedStation];
+            
+            // Draw Jurisdiction Boundary Area (dashed purple circle)
+            jurisdictionLayer = L.circle([sCoords.lat, sCoords.lng], {
+                radius: 2200, // 2.2km radius
+                color: "rgba(139, 92, 246, 0.45)",
+                fillColor: "rgba(139, 92, 246, 0.08)",
+                fillOpacity: 0.25,
+                weight: 1.5,
+                dashArray: "6, 8"
+            }).addTo(plannerMap);
+            
+            // Draw Station Marker
+            const stationIcon = L.divIcon({
+                html: `<div style="background: #38bdf8; width: 14px; height: 14px; border: 2px solid white; border-radius: 4px; box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);"></div>`,
+                className: 'custom-station-icon',
+                iconSize: [14, 14]
+            });
+            stationMarker = L.marker([sCoords.lat, sCoords.lng], { icon: stationIcon }).addTo(plannerMap);
+            stationMarker.bindPopup(`<strong>${selectedStation} Police Station</strong><br>Centroid Coordinates`);
+        }
+
         if (result.diversion.required && result.diversion.map_points.length > 0) {
-            result.diversion.map_points.forEach(divPt => {
+            // Draw Barricading Zone upstream (15% offset towards first diversion point)
+            const firstDiv = result.diversion.map_points[0];
+            const dx = firstDiv.lat - latitude;
+            const dy = firstDiv.lng - longitude;
+            const offsetFraction = 0.15;
+            const barLat = latitude + dx * offsetFraction;
+            const barLng = longitude + dy * offsetFraction;
+            
+            const barricadeIcon = L.divIcon({
+                html: `<div style="background: #ef4444; width: 14px; height: 14px; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(239, 68, 68, 0.6); display: flex; align-items: center; justify-content: center; font-size: 8px; color: white; font-weight: bold;">B</div>`,
+                className: 'custom-barricade-icon',
+                iconSize: [14, 14]
+            });
+            barricadeMarker = L.marker([barLat, barLng], { icon: barricadeIcon }).addTo(plannerMap);
+            barricadeMarker.bindPopup(`<strong>Upstream Barricading Zone</strong><br>Deploy ${result.barricading.recommended_count} Barricades here.`);
+
+            result.diversion.map_points.forEach(async (divPt, idx) => {
                 // Create orange marker for diversion points
                 const divIcon = L.divIcon({
                     html: `<div style="background: var(--severity-high); width: 14px; height: 14px; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>`,
@@ -511,22 +555,26 @@ async function handleSimulatorSubmit(e) {
                 });
                 
                 const marker = L.marker([divPt.lat, divPt.lng], { icon: divIcon }).addTo(plannerMap);
-                marker.bindPopup(`<strong>${humanizeJunctionName(divPt.name)}</strong><br>${humanizeJunctionName(divPt.role)}`);
+                marker.bindPopup(`<strong>${humanizeJunctionName(divPt.name)}</strong><br>${humanizeJunctionName(divPt.role)}<br>Deploy police guides here.`);
                 diversionMarkers.push(marker);
                 
-                // Draw connecting dashed line
-                const polyline = L.polyline([[latitude, longitude], [divPt.lat, divPt.lng]], {
-                    color: '#f77f00',
-                    weight: 2,
-                    dashArray: '5, 8',
-                    opacity: 0.8
+                // Fetch and draw actual road path from OSRM
+                const routeCoordinates = await getOSRMRoute(latitude, longitude, divPt.lat, divPt.lng);
+                
+                const polyline = L.polyline(routeCoordinates, {
+                    color: idx === 0 ? '#f59e0b' : '#38bdf8', // primary routing is orange, secondary is blue
+                    weight: 3.5,
+                    dashArray: idx === 0 ? 'none' : '5, 5', // solid for primary, dashed for secondary
+                    opacity: 0.85
                 }).addTo(plannerMap);
                 diversionLines.push(polyline);
             });
             
             // Adjust bounds to fit all
-            const group = new L.featureGroup([simulatorMarker, ...diversionMarkers]);
-            plannerMap.fitBounds(group.getBounds().pad(0.2));
+            setTimeout(() => {
+                const group = new L.featureGroup([simulatorMarker, ...diversionMarkers]);
+                plannerMap.fitBounds(group.getBounds().pad(0.2));
+            }, 1000);
         }
         
         // Populate hidden feedback inputs
@@ -563,6 +611,19 @@ function clearDiversions() {
     diversionLines.forEach(l => plannerMap.removeLayer(l));
     diversionMarkers = [];
     diversionLines = [];
+    
+    if (jurisdictionLayer) {
+        plannerMap.removeLayer(jurisdictionLayer);
+        jurisdictionLayer = null;
+    }
+    if (stationMarker) {
+        plannerMap.removeLayer(stationMarker);
+        stationMarker = null;
+    }
+    if (barricadeMarker) {
+        plannerMap.removeLayer(barricadeMarker);
+        barricadeMarker = null;
+    }
 }
 
 // 5. Submit feedback (Close event)
@@ -782,4 +843,19 @@ function humanizeJunctionName(name) {
     formatted = formatted.replace(/\s+/g, ' ').trim();
     
     return formatted;
+}
+
+async function getOSRMRoute(lat1, lng1, lat2, lng2) {
+    try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?geometries=geojson`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("OSRM status not OK");
+        const data = await response.json();
+        if (data.routes && data.routes.length > 0) {
+            return data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+        }
+    } catch (e) {
+        console.error("OSRM routing API error, falling back to straight line:", e);
+    }
+    return [[lat1, lng1], [lat2, lng2]]; // straight line fallback
 }

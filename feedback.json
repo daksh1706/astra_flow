@@ -401,5 +401,27 @@
     "police_station": "Yeshwanthpura",
     "hour": 18,
     "day_of_week": 1
+  },
+  {
+    "event_id": "TEST-9999",
+    "event_cause": "accident",
+    "predicted_severity": "Critical",
+    "predicted_duration": 120.0,
+    "actual_severity": "Critical",
+    "actual_duration": 50.0,
+    "recommended_officers": 15,
+    "actual_officers": 8,
+    "recommended_barricades": 30,
+    "actual_barricades": 10,
+    "diversion_effective": "yes",
+    "rating": 5,
+    "timestamp": "2026-06-22T05:21:59.021550Z",
+    "event_type": "unplanned",
+    "requires_road_closure": true,
+    "priority": "High",
+    "corridor": "Tumkur Road",
+    "police_station": "Yeshwanthpura",
+    "hour": 18,
+    "day_of_week": 1
   }
 ]
